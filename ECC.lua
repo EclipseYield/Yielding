@@ -7,8 +7,8 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local Library = {}
-Library.Icon = "rbxthumb://type=Asset&id=109540638276525&w=420&h=420"
-Library.Texture = "rbxthumb://type=Asset&id=109540638276525&w=420&h=420"
+Library.IconId = 109540638276525 -- change this if the image does not load
+Library.Notifications = true
 Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 local Theme = {
@@ -88,6 +88,42 @@ local function isMove(input)
 		or input.UserInputType == Enum.UserInputType.Touch
 end
 
+-- Images -----------------------------------------------------------------
+
+-- The same asset can fail with one format and load with another (Decal vs Image
+-- ids), so each format is tried in order until one actually loads.
+local function loadImage(obj)
+	task.spawn(function()
+		local id = Library.IconId
+		local sources = {
+			"rbxthumb://type=Asset&id=" .. id .. "&w=420&h=420",
+			"rbxassetid://" .. id,
+			"https://www.roblox.com/asset-thumbnail/image?assetId=" .. id .. "&width=420&height=420&format=png",
+		}
+		for _, src in ipairs(sources) do
+			obj.Image = src
+			local waited = 0
+			while obj.Parent and not obj.IsLoaded and waited < 3 do
+				task.wait(0.25)
+				waited += 0.25
+			end
+			if not obj.Parent or obj.IsLoaded then
+				return
+			end
+		end
+		-- nothing loaded: show a letter instead of an empty box
+		obj.Image = ""
+		new("TextLabel", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Text = "E",
+			TextColor3 = Theme.Text,
+			TextScaled = true,
+			Font = Font,
+		}, obj)
+	end)
+end
+
 -- Notifications ----------------------------------------------------------
 
 local notifyGui, notifyHolder
@@ -127,6 +163,9 @@ end
 -- Tapping a notification dismisses it immediately.
 function Library:Notify(opts)
 	opts = opts or {}
+	if Library.Notifications == false then
+		return
+	end
 	local holder = getHolder()
 	notifyCount += 1
 
@@ -145,12 +184,16 @@ function Library:Notify(opts)
 	corner(card, 8)
 	stroke(card, Theme.Red, 1.2)
 
-	new("ImageLabel", {
+	local noteIcon = new("ImageLabel", {
 		Size = UDim2.fromOffset(42, 42),
 		Position = UDim2.fromOffset(12, 13),
 		BackgroundTransparency = 1,
-		Image = opts.Icon or Library.Icon,
 	}, card)
+	if opts.Icon then
+		noteIcon.Image = opts.Icon
+	else
+		loadImage(noteIcon)
+	end
 
 	new("TextLabel", {
 		Size = UDim2.new(1, -76, 0, 18),
@@ -266,12 +309,12 @@ function Library:CreateWindow(config)
 		BackgroundTransparency = 1,
 	}, main)
 
-	new("ImageLabel", {
+	local topIcon = new("ImageLabel", {
 		Size = UDim2.fromOffset(46, 46),
 		Position = UDim2.fromOffset(10, 9),
 		BackgroundTransparency = 1,
-		Image = Library.Icon,
 	}, topbar)
+	loadImage(topIcon)
 
 	new("TextLabel", {
 		Size = UDim2.new(1, -170, 1, 0),
@@ -510,10 +553,10 @@ function Library:CreateWindow(config)
 			Size = UDim2.fromOffset(46, 46),
 			Position = UDim2.new(0, 8, 0.5, -23),
 			BackgroundColor3 = Color3.fromRGB(8, 10, 13),
-			Image = Library.Texture,
 			AutoButtonColor = false,
 		}, gui)
 		corner(fab, 23)
+		loadImage(fab)
 		stroke(fab, Theme.Red, 1.5)
 
 		local dragging, moved, dragStart, startPos = false, false, nil, nil
@@ -847,6 +890,38 @@ function Library:CreateWindow(config)
 	local defaultSection = Window:AddSection("Settings & Config")
 	Window.Settings = defaultSection:AddTab("Settings")
 	Window.Config = defaultSection:AddTab("Config")
+
+	-- Starter content so the tabs are not empty. Pass DefaultContent = false
+	-- to CreateWindow if you want them blank.
+	if config.DefaultContent ~= false then
+		local settings = Window.Settings
+		settings:AddLabel("Interface")
+		settings:AddToggle("Notifications", true, function(on)
+			Library.Notifications = on
+		end)
+		if Library.IsMobile then
+			settings:AddLabel("Menu: tap the side icon")
+		else
+			local names = {}
+			for key in pairs(toggleKeys) do
+				table.insert(names, key.Name)
+			end
+			table.sort(names)
+			settings:AddLabel("Menu key: " .. table.concat(names, ", "))
+		end
+		settings:AddButton("Unload UI", function()
+			overlay.Visible = true
+		end)
+
+		local cfg = Window.Config
+		cfg:AddLabel("Window")
+		cfg:AddButton("Reset Position", function()
+			main.Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2)
+		end)
+		cfg:AddButton("Test Notification", function()
+			Library:Notify({ Title = "Eclipse Yield", Text = "Notifications are working." })
+		end)
+	end
 
 	return Window
 end
