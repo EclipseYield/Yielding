@@ -1,0 +1,1486 @@
+
+--[[
+    ECLIPSE YIELD UI LIBRARY
+    Version: 3.1
+    Features:
+    - Moon icon
+    - Working sections and tabs
+    - Buttons, toggles, sliders, textboxes, dropdowns and keybinds
+    - Settings / Config / Server
+    - JobID / PlaceID
+    - config_meu.lua
+    - Auto Save
+    - Animated notifications
+    - Working close / minimize / toggle
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+local Player = Players.LocalPlayer
+
+local Library = {
+    Notifications = true,
+    IsMobile = UserInputService.TouchEnabled
+        and not UserInputService.KeyboardEnabled,
+    ConfigFile = "config_meu.lua",
+    AutoSave = true,
+    Version = "3.1"
+}
+
+local Theme = {
+    Background = Color3.fromRGB(8, 8, 10),
+    Sidebar = Color3.fromRGB(12, 12, 15),
+    Element = Color3.fromRGB(19, 19, 23),
+    ElementHover = Color3.fromRGB(29, 29, 34),
+    Stroke = Color3.fromRGB(43, 43, 49),
+    Red = Color3.fromRGB(190, 35, 45),
+    RedLight = Color3.fromRGB(230, 55, 65),
+    White = Color3.fromRGB(245, 245, 245),
+    Gray = Color3.fromRGB(155, 155, 165),
+    Off = Color3.fromRGB(55, 55, 62)
+}
+
+local Font = Enum.Font.Gotham
+
+local function Create(class, properties, parent)
+    local object = Instance.new(class)
+
+    for property, value in pairs(properties or {}) do
+        object[property] = value
+    end
+
+    object.Parent = parent
+    return object
+end
+
+local function Corner(object, radius)
+    Create("UICorner", {
+        CornerRadius = UDim.new(0, radius or 6)
+    }, object)
+end
+
+local function Outline(object, color, thickness)
+    return Create("UIStroke", {
+        Color = color or Theme.Stroke,
+        Thickness = thickness or 1
+    }, object)
+end
+
+local function Animate(object, properties, duration)
+    local animation = TweenService:Create(
+        object,
+        TweenInfo.new(
+            duration or 0.2,
+            Enum.EasingStyle.Quart,
+            Enum.EasingDirection.Out
+        ),
+        properties
+    )
+
+    animation:Play()
+    return animation
+end
+
+local function GetParent()
+    local success, result = pcall(function()
+        if gethui then
+            return gethui()
+        end
+    end)
+
+    if success and result then
+        return result
+    end
+
+    return Player:WaitForChild("PlayerGui")
+end
+
+local function MakeDraggable(object, target, connections)
+    local dragging = false
+    local dragStart
+    local startPosition
+
+    table.insert(connections, object.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            dragging = true
+            dragStart = input.Position
+            startPosition = target.Position
+
+            local ended
+            ended = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    ended:Disconnect()
+                end
+            end)
+        end
+    end))
+
+    table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+        if not dragging then
+            return
+        end
+
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            local delta = input.Position - dragStart
+
+            target.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end))
+end
+
+--==================================================
+-- NOTIFICATIONS
+--==================================================
+
+local NotificationGui
+local NotificationHolder
+
+local function GetNotificationHolder()
+    if NotificationHolder and NotificationHolder.Parent then
+        return NotificationHolder
+    end
+
+    NotificationGui = Create("ScreenGui", {
+        Name = "EclipseNotifications",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 9999
+    }, GetParent())
+
+    NotificationHolder = Create("Frame", {
+        Name = "Holder",
+        Size = UDim2.fromOffset(300, 400),
+        Position = UDim2.new(1, -315, 0, 18),
+        BackgroundTransparency = 1
+    }, NotificationGui)
+
+    Create("UIListLayout", {
+        Padding = UDim.new(0, 9),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        VerticalAlignment = Enum.VerticalAlignment.Top
+    }, NotificationHolder)
+
+    return NotificationHolder
+end
+
+function Library:Notify(options)
+    options = options or {}
+
+    if not self.Notifications then
+        return
+    end
+
+    local holder = GetNotificationHolder()
+
+    local card = Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 76),
+        BackgroundColor3 = Theme.Background,
+        BackgroundTransparency = 0.05,
+        BorderSizePixel = 0
+    }, holder)
+
+    Corner(card, 8)
+    Outline(card, Theme.Red, 1.2)
+
+    local icon = Create("TextLabel", {
+        Size = UDim2.fromOffset(42, 42),
+        Position = UDim2.fromOffset(12, 12),
+        BackgroundTransparency = 1,
+        Text = "🌙",
+        TextSize = 27,
+        Font = Enum.Font.Gotham
+    }, card)
+
+    Create("TextLabel", {
+        Size = UDim2.new(1, -65, 0, 22),
+        Position = UDim2.fromOffset(62, 10),
+        BackgroundTransparency = 1,
+        Text = options.Title or "Eclipse Yield",
+        TextColor3 = Theme.White,
+        TextSize = 13,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd
+    }, card)
+
+    Create("TextLabel", {
+        Size = UDim2.new(1, -65, 0, 30),
+        Position = UDim2.fromOffset(62, 32),
+        BackgroundTransparency = 1,
+        Text = options.Text or "Notification",
+        TextColor3 = Theme.Gray,
+        TextSize = 11,
+        Font = Font,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top
+    }, card)
+
+    local progressBackground = Create("Frame", {
+        Size = UDim2.new(1, -20, 0, 2),
+        Position = UDim2.new(0, 10, 1, -5),
+        BackgroundColor3 = Theme.Stroke,
+        BorderSizePixel = 0
+    }, card)
+
+    local progress = Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Theme.Red,
+        BorderSizePixel = 0
+    }, progressBackground)
+
+    card.Position = UDim2.new(1, 320, 0, 0)
+
+    Animate(card, {
+        Position = UDim2.new(0, 0, 0, 0)
+    }, 0.35)
+
+    local duration = options.Duration or 4
+
+    Animate(progress, {
+        Size = UDim2.new(0, 0, 1, 0)
+    }, duration)
+
+    task.delay(duration, function()
+        if not card.Parent then
+            return
+        end
+
+        local animation = Animate(card, {
+            Position = UDim2.new(1, 320, 0, 0),
+            BackgroundTransparency = 1
+        }, 0.25)
+
+        animation.Completed:Wait()
+
+        if card.Parent then
+            card:Destroy()
+        end
+    end)
+end
+
+--==================================================
+-- CONFIGURATION
+--==================================================
+
+local function Serialize(value)
+    if type(value) == "string" then
+        return string.format("%q", value)
+    elseif type(value) == "number" or type(value) == "boolean" then
+        return tostring(value)
+    end
+
+    return "nil"
+end
+
+local function SaveTableToFile(fileName, data)
+    if not writefile then
+        return false
+    end
+
+    local lines = {
+        "-- Eclipse Yield Configuration",
+        "return {"
+    }
+
+    for key, value in pairs(data) do
+        if type(key) == "string" then
+            table.insert(
+                lines,
+                "[" .. string.format("%q", key) .. "] = " ..
+                    Serialize(value) .. ","
+            )
+        end
+    end
+
+    table.insert(lines, "}")
+
+    local success = pcall(function()
+        writefile(fileName, table.concat(lines, "\n"))
+    end)
+
+    return success
+end
+
+local function LoadTableFromFile(fileName)
+    if not readfile or not isfile then
+        return nil
+    end
+
+    if not isfile(fileName) then
+        return nil
+    end
+
+    local success, result = pcall(function()
+        local source = readfile(fileName)
+        local chunk = loadstring(source)
+
+        if not chunk then
+            error("Invalid configuration")
+        end
+
+        return chunk()
+    end)
+
+    if success and type(result) == "table" then
+        return result
+    end
+
+    return nil
+end
+
+--==================================================
+-- WINDOW
+--==================================================
+
+function Library:CreateWindow(options)
+    options = options or {}
+
+    local Window = {
+        Sections = {},
+        Elements = {},
+        Values = {},
+        Connections = {},
+        CurrentTab = nil,
+        Destroyed = false,
+        Minimized = false,
+        ToggleKey = options.ToggleKey or Enum.KeyCode.RightControl
+    }
+
+    local function Connect(signal, callback)
+        local connection = signal:Connect(callback)
+        table.insert(Window.Connections, connection)
+        return connection
+    end
+
+    local camera = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+
+    local width = math.min(
+        (options.Size and options.Size.X) or 650,
+        viewport.X - 20
+    )
+
+    local height = math.min(
+        (options.Size and options.Size.Y) or 460,
+        viewport.Y - 20
+    )
+
+    local gui = Create("ScreenGui", {
+        Name = "EclipseYield",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 999,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    }, GetParent())
+
+    Window.Gui = gui
+
+    local main = Create("Frame", {
+        Name = "Main",
+        Size = UDim2.fromOffset(width, height),
+        Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2),
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel = 0,
+        ClipsDescendants = true
+    }, gui)
+
+    Corner(main, 9)
+    Outline(main, Theme.Stroke, 1)
+
+    -- HEADER
+
+    local header = Create("Frame", {
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, 58),
+        BackgroundColor3 = Color3.fromRGB(11, 11, 14),
+        BorderSizePixel = 0
+    }, main)
+
+    local moon = Create("TextLabel", {
+        Size = UDim2.fromOffset(42, 42),
+        Position = UDim2.fromOffset(10, 8),
+        BackgroundTransparency = 1,
+        Text = "🌙",
+        TextSize = 27,
+        Font = Enum.Font.Gotham
+    }, header)
+
+    Create("TextLabel", {
+        Size = UDim2.new(1, -150, 1, 0),
+        Position = UDim2.fromOffset(60, 0),
+        BackgroundTransparency = 1,
+        Text = options.Title or "Eclipse Yield",
+        TextColor3 = Theme.White,
+        TextSize = 17,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, header)
+
+    local minimize = Create("TextButton", {
+        Size = UDim2.fromOffset(30, 30),
+        Position = UDim2.new(1, -76, 0, 14),
+        BackgroundColor3 = Theme.Element,
+        Text = "—",
+        TextColor3 = Theme.White,
+        TextSize = 16,
+        Font = Font,
+        AutoButtonColor = false
+    }, header)
+
+    Corner(minimize, 6)
+
+    local close = Create("TextButton", {
+        Size = UDim2.fromOffset(30, 30),
+        Position = UDim2.new(1, -39, 0, 14),
+        BackgroundColor3 = Theme.Red,
+        Text = "×",
+        TextColor3 = Theme.White,
+        TextSize = 21,
+        Font = Font,
+        AutoButtonColor = false
+    }, header)
+
+    Corner(close, 6)
+
+    MakeDraggable(header, main, Window.Connections)
+
+    -- BODY
+
+    local body = Create("Frame", {
+        Name = "Body",
+        Size = UDim2.new(1, 0, 1, -58),
+        Position = UDim2.fromOffset(0, 58),
+        BackgroundTransparency = 1
+    }, main)
+
+    local sidebar = Create("Frame", {
+        Name = "Sidebar",
+        Size = UDim2.new(0, 135, 1, -12),
+        Position = UDim2.fromOffset(8, 5),
+        BackgroundColor3 = Theme.Sidebar,
+        BorderSizePixel = 0
+    }, body)
+
+    Corner(sidebar, 6)
+
+    local sidebarLayout = Create("UIListLayout", {
+        Padding = UDim.new(0, 8),
+        SortOrder = Enum.SortOrder.LayoutOrder
+    }, sidebar)
+
+    Create("UIPadding", {
+        PaddingTop = UDim.new(0, 10),
+        PaddingLeft = UDim.new(0, 8),
+        PaddingRight = UDim.new(0, 8)
+    }, sidebar)
+
+    local content = Create("Frame", {
+        Name = "Content",
+        Size = UDim2.new(1, -160, 1, -12),
+        Position = UDim2.fromOffset(153, 5),
+        BackgroundColor3 = Theme.Sidebar,
+        BorderSizePixel = 0,
+        ClipsDescendants = true
+    }, body)
+
+    Corner(content, 6)
+
+    -- WINDOW METHODS
+
+    function Window:Notify(data)
+        Library:Notify(data)
+    end
+
+    function Window:Show()
+        if not Window.Destroyed then
+            main.Visible = true
+        end
+    end
+
+    function Window:Hide()
+        if not Window.Destroyed then
+            main.Visible = false
+        end
+    end
+
+    function Window:Toggle()
+        if not Window.Destroyed then
+            main.Visible = not main.Visible
+        end
+    end
+
+    function Window:SetToggleKey(key)
+        Window.ToggleKey = key
+    end
+
+    function Window:Destroy()
+        if Window.Destroyed then
+            return
+        end
+
+        Window.Destroyed = true
+
+        if Window.AutoSaveEnabled then
+            self:SaveConfig()
+        end
+
+        for _, connection in ipairs(Window.Connections) do
+            pcall(function()
+                connection:Disconnect()
+            end)
+        end
+
+        table.clear(Window.Connections)
+
+        if gui then
+            gui:Destroy()
+        end
+    end
+
+    Connect(close.MouseButton1Click, function()
+        Window:Destroy()
+    end)
+
+    Connect(minimize.MouseButton1Click, function()
+        Window.Minimized = not Window.Minimized
+        body.Visible = not Window.Minimized
+
+        Animate(main, {
+            Size = UDim2.fromOffset(
+                width,
+                Window.Minimized and 58 or height
+            )
+        }, 0.2)
+    end)
+
+    Connect(UserInputService.InputBegan, function(input, processed)
+        if processed or Window.Destroyed then
+            return
+        end
+
+        if input.KeyCode == Window.ToggleKey then
+            Window:Toggle()
+        end
+    end)
+
+    --==================================================
+    -- CONFIG API
+    --==================================================
+
+    function Window:SaveConfig()
+        local success = SaveTableToFile(
+            Library.ConfigFile,
+            Window.Values
+        )
+
+        if success then
+            Library:Notify({
+                Title = "Configuration",
+                Text = "Config saved to " .. Library.ConfigFile,
+                Duration = 2
+            })
+        else
+            Library:Notify({
+                Title = "Configuration",
+                Text = "Could not save. Check executor file support.",
+                Duration = 3
+            })
+        end
+
+        return success
+    end
+
+    function Window:LoadConfig()
+        local data = LoadTableFromFile(Library.ConfigFile)
+
+        if not data then
+            Library:Notify({
+                Title = "Configuration",
+                Text = "No valid config file was found.",
+                Duration = 3
+            })
+            return false
+        end
+
+        for key, value in pairs(data) do
+            local element = Window.Elements[key]
+
+            if element and element.Set then
+                pcall(function()
+                    element:Set(value, true)
+                end)
+            end
+        end
+
+        Library:Notify({
+            Title = "Configuration",
+            Text = "Configuration loaded.",
+            Duration = 2
+        })
+
+        return true
+    end
+
+    function Window:SetAutoSave(enabled)
+        Window.AutoSaveEnabled = enabled
+
+        Library.AutoSave = enabled
+    end
+
+    Window.AutoSaveEnabled = Library.AutoSave
+
+    task.spawn(function()
+        while not Window.Destroyed do
+            task.wait(15)
+
+            if Window.Destroyed then
+                break
+            end
+
+            if Window.AutoSaveEnabled then
+                SaveTableToFile(Library.ConfigFile, Window.Values)
+            end
+        end
+    end)
+
+    --==================================================
+    -- SECTION API
+    --==================================================
+
+    function Window:AddSection(sectionName)
+        local Section = {
+            Name = sectionName,
+            Tabs = {}
+        }
+
+        local sectionLabel = Create("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 20),
+            BackgroundTransparency = 1,
+            Text = tostring(sectionName),
+            TextColor3 = Theme.Gray,
+            TextSize = 10,
+            Font = Enum.Font.GothamBold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            LayoutOrder = #Window.Sections * 2 + 1
+        }, sidebar)
+
+        local holder = Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+            LayoutOrder = #Window.Sections * 2 + 2
+        }, sidebar)
+
+        Create("UIListLayout", {
+            Padding = UDim.new(0, 5),
+            SortOrder = Enum.SortOrder.LayoutOrder
+        }, holder)
+
+        function Section:AddTab(tabName)
+            local Tab = {
+                Name = tabName,
+                Elements = {},
+                Order = 0
+            }
+
+            local button = Create("TextButton", {
+                Size = UDim2.new(1, 0, 0, 31),
+                BackgroundColor3 = Theme.Element,
+                Text = tostring(tabName),
+                TextColor3 = Theme.Gray,
+                TextSize = 12,
+                Font = Font,
+                AutoButtonColor = false
+            }, holder)
+
+            Corner(button, 5)
+
+            local page = Create("ScrollingFrame", {
+                Name = tostring(tabName),
+                Size = UDim2.fromScale(1, 1),
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                ScrollBarThickness = 3,
+                ScrollBarImageColor3 = Theme.Red,
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                CanvasSize = UDim2.new(),
+                Visible = false
+            }, content)
+
+            Create("UIListLayout", {
+                Padding = UDim.new(0, 7),
+                SortOrder = Enum.SortOrder.LayoutOrder
+            }, page)
+
+            Create("UIPadding", {
+                PaddingTop = UDim.new(0, 10),
+                PaddingBottom = UDim.new(0, 10),
+                PaddingLeft = UDim.new(0, 10),
+                PaddingRight = UDim.new(0, 10)
+            }, page)
+
+            Tab.Button = button
+            Tab.Page = page
+
+            function Tab:Select()
+                if Window.Destroyed then
+                    return
+                end
+
+                if Window.CurrentTab then
+                    Window.CurrentTab.Page.Visible = false
+
+                    Animate(Window.CurrentTab.Button, {
+                        BackgroundColor3 = Theme.Element,
+                        TextColor3 = Theme.Gray
+                    }, 0.15)
+                end
+
+                Window.CurrentTab = Tab
+                page.Visible = true
+
+                Animate(button, {
+                    BackgroundColor3 = Theme.Red,
+                    TextColor3 = Theme.White
+                }, 0.15)
+            end
+
+            Connect(button.MouseButton1Click, function()
+                Tab:Select()
+            end)
+
+            -- ELEMENT HELPERS
+
+            local function NewRow(rowHeight)
+                Tab.Order += 1
+
+                local frame = Create("Frame", {
+                    Size = UDim2.new(1, 0, 0, rowHeight or 36),
+                    BackgroundColor3 = Theme.Element,
+                    BorderSizePixel = 0,
+                    LayoutOrder = Tab.Order
+                }, page)
+
+                Corner(frame, 5)
+                Outline(frame, Theme.Stroke, 1)
+
+                return frame
+            end
+
+            local function Register(id, element, default)
+                id = id or (tostring(tabName) .. "_" .. tostring(Tab.Order))
+
+                Window.Elements[id] = element
+                Window.Values[id] = default
+
+                element.ConfigId = id
+                return element
+            end
+
+            -- LABEL
+
+            function Tab:AddLabel(text)
+                Tab.Order += 1
+
+                local label = Create("TextLabel", {
+                    Size = UDim2.new(1, 0, 0, 23),
+                    BackgroundTransparency = 1,
+                    Text = tostring(text),
+                    TextColor3 = Theme.Gray,
+                    TextSize = 12,
+                    Font = Font,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    LayoutOrder = Tab.Order
+                }, page)
+
+                return label
+            end
+
+            -- PARAGRAPH
+
+            function Tab:AddParagraph(title, description)
+                local frame = NewRow(65)
+
+                Create("TextLabel", {
+                    Size = UDim2.new(1, -20, 0, 22),
+                    Position = UDim2.fromOffset(10, 6),
+                    BackgroundTransparency = 1,
+                    Text = tostring(title),
+                    TextColor3 = Theme.White,
+                    TextSize = 13,
+                    Font = Enum.Font.GothamBold,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                }, frame)
+
+                Create("TextLabel", {
+                    Size = UDim2.new(1, -20, 0, 30),
+                    Position = UDim2.fromOffset(10, 29),
+                    BackgroundTransparency = 1,
+                    Text = tostring(description),
+                    TextColor3 = Theme.Gray,
+                    TextSize = 11,
+                    Font = Font,
+                    TextWrapped = true,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextYAlignment = Enum.TextYAlignment.Top
+                }, frame)
+
+                return frame
+            end
+
+            -- BUTTON
+
+            function Tab:AddButton(text, callback)
+                local frame = NewRow(36)
+
+                local buttonElement = Create("TextButton", {
+                    Size = UDim2.fromScale(1, 1),
+                    BackgroundTransparency = 1,
+                    Text = tostring(text),
+                    TextColor3 = Theme.White,
+                    TextSize = 12,
+                    Font = Enum.Font.GothamBold,
+                    AutoButtonColor = false
+                }, frame)
+
+                Connect(buttonElement.MouseEnter, function()
+                    Animate(frame, {
+                        BackgroundColor3 = Theme.ElementHover
+                    }, 0.15)
+                end)
+
+                Connect(buttonElement.MouseLeave, function()
+                    Animate(frame, {
+                        BackgroundColor3 = Theme.Element
+                    }, 0.15)
+                end)
+
+                Connect(buttonElement.MouseButton1Click, function()
+                    Animate(frame, {
+                        BackgroundColor3 = Theme.Red
+                    }, 0.08)
+
+                    task.delay(0.1, function()
+                        if frame.Parent then
+                            Animate(frame, {
+                                BackgroundColor3 = Theme.Element
+                            }, 0.2)
+                        end
+                    end)
+
+                    if callback then
+                        task.spawn(callback)
+                    end
+                end)
+
+                return buttonElement
+            end
+
+            -- TOGGLE
+
+            function Tab:AddToggle(text, default, callback, id)
+                local state = default == true
+                local frame = NewRow(38)
+
+                Create("TextLabel", {
+                    Size = UDim2.new(1, -70, 1, 0),
+                    Position = UDim2.fromOffset(11, 0),
+                    BackgroundTransparency = 1,
+                    Text = tostring(text),
+                    TextColor3 = Theme.White,
+                    TextSize = 12,
+                    Font = Font,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                }, frame)
+
+                local track = Create("Frame", {
+                    Size = UDim2.fromOffset(38, 20),
+                    Position = UDim2.new(1, -50, 0.5, -10),
+                    BackgroundColor3 = state and Theme.Red or Theme.Off,
+                    BorderSizePixel = 0
+                }, frame)
+
+                Corner(track, 20)
+
+                local knob = Create("Frame", {
+                    Size = UDim2.fromOffset(14, 14),
+                    Position = state
+                        and UDim2.fromOffset(21, 3)
+                        or UDim2.fromOffset(3, 3),
+                    BackgroundColor3 = Theme.White,
+                    BorderSizePixel = 0
+                }, track)
+
+                Corner(knob, 20)
+
+                local hitbox = Create("TextButton", {
+                    Size = UDim2.fromScale(1, 1),
+                    BackgroundTransparency = 1,
+                    Text = ""
+                }, frame)
+
+                local Toggle = {}
+
+                function Toggle:Set(value, silent)
+                    state = value == true
+
+                    Animate(track, {
+                        BackgroundColor3 = state and Theme.Red or Theme.Off
+                    }, 0.15)
+
+                    Animate(knob, {
+                        Position = state
+                            and UDim2.fromOffset(21, 3)
+                            or UDim2.fromOffset(3, 3)
+                    }, 0.15)
+
+                    Window.Values[self.ConfigId] = state
+
+                    if callback and not silent then
+                        task.spawn(callback, state)
+                    end
+                end
+
+                function Toggle:Get()
+                    return state
+                end
+
+                Register(id, Toggle, state)
+
+                Connect(hitbox.MouseButton1Click, function()
+                    Toggle:Set(not state)
+                end)
+
+                return Toggle
+            end
+
+            -- SLIDER
+
+            function Tab:AddSlider(text, minimum, maximum, default, callback, id)
+                minimum = minimum or 0
+                maximum = maximum or 100
+
+                if maximum < minimum then
+                    maximum = minimum
+                end
+
+                local value = math.clamp(
+                    default or minimum,
+                    minimum,
+                    maximum
+                )
+
+                local frame = NewRow(55)
+
+                local label = Create("TextLabel", {
+                    Size = UDim2.new(1, -20, 0, 22),
+                    Position = UDim2.fromOffset(10, 3),
+                    BackgroundTransparency = 1,
+                    TextColor3 = Theme.White,
+                    TextSize = 12,
+                    Font = Font,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                }, frame)
+
+                local bar = Create("Frame", {
+                    Size = UDim2.new(1, -20, 0, 6),
+                    Position = UDim2.new(0, 10, 1, -14),
+                    BackgroundColor3 = Theme.Off,
+                    BorderSizePixel = 0
+                }, frame)
+
+                Corner(bar, 5)
+
+                local fill = Create("Frame", {
+                    Size = UDim2.new(
+                        maximum == minimum and 0 or
+                            (value - minimum) / (maximum - minimum),
+                        0, 1, 0
+                    ),
+                    BackgroundColor3 = Theme.Red,
+                    BorderSizePixel = 0
+                }, bar)
+
+                Corner(fill, 5)
+
+                local Slider = {}
+
+                local function Refresh()
+                    label.Text = tostring(text) .. ": " .. tostring(value)
+                end
+
+                function Slider:Set(newValue, silent)
+                    value = math.clamp(
+                        math.floor(newValue + 0.5),
+                        minimum,
+                        maximum
+                    )
+
+                    local alpha = maximum == minimum and 0
+                        or (value - minimum) / (maximum - minimum)
+
+                    Animate(fill, {
+                        Size = UDim2.new(alpha, 0, 1, 0)
+                    }, 0.1)
+
+                    Refresh()
+                    Window.Values[self.ConfigId] = value
+
+                    if callback and not silent then
+                        task.spawn(callback, value)
+                    end
+                end
+
+                function Slider:Get()
+                    return value
+                end
+
+                Register(id, Slider, value)
+                Refresh()
+
+                local dragging = false
+
+                local function Update(input)
+                    if bar.AbsoluteSize.X <= 0 then
+                        return
+                    end
+
+                    local alpha = math.clamp(
+                        (input.Position.X - bar.AbsolutePosition.X)
+                            / bar.AbsoluteSize.X,
+                        0, 1
+                    )
+
+                    Slider:Set(minimum + (maximum - minimum) * alpha)
+                end
+
+                Connect(bar.InputBegan, function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                        or input.UserInputType == Enum.UserInputType.Touch then
+
+                        dragging = true
+                        Update(input)
+                    end
+                end)
+
+                Connect(UserInputService.InputChanged, function(input)
+                    if dragging and (
+                        input.UserInputType == Enum.UserInputType.MouseMovement
+                        or input.UserInputType == Enum.UserInputType.Touch
+                    ) then
+                        Update(input)
+                    end
+                end)
+
+                Connect(UserInputService.InputEnded, function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                        or input.UserInputType == Enum.UserInputType.Touch then
+
+                        dragging = false
+                    end
+                end)
+
+                return Slider
+            end
+
+            -- TEXTBOX
+
+            function Tab:AddTextBox(text, placeholder, callback, id)
+                local frame = NewRow(40)
+
+                Create("TextLabel", {
+                    Size = UDim2.new(0.4, 0, 1, 0),
+                    Position = UDim2.fromOffset(10, 0),
+                    BackgroundTransparency = 1,
+                    Text = tostring(text),
+                    TextColor3 = Theme.White,
+                    TextSize = 12,
+                    Font = Font,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                }, frame)
+
+                local box = Create("TextBox", {
+                    Size = UDim2.new(0.55, -10, 0, 26),
+                    Position = UDim2.new(0.45, 0, 0.5, -13),
+                    BackgroundColor3 = Theme.Background,
+                    Text = "",
+                    PlaceholderText = placeholder or "Type here...",
+                    PlaceholderColor3 = Theme.Gray,
+                    TextColor3 = Theme.White,
+                    TextSize = 11,
+                    Font = Font,
+                    ClearTextOnFocus = false
+                }, frame)
+
+                Corner(box, 4)
+                Outline(box, Theme.Stroke)
+
+                local TextBox = {}
+
+                function TextBox:Set(value, silent)
+                    box.Text = tostring(value or "")
+                    Window.Values[self.ConfigId] = box.Text
+
+                    if callback and not silent then
+                        task.spawn(callback, box.Text)
+                    end
+                end
+
+                function TextBox:Get()
+                    return box.Text
+                end
+
+                Register(id, TextBox, "")
+
+                Connect(box.FocusLost, function()
+                    Window.Values[id or TextBox.ConfigId] = box.Text
+
+                    if callback then
+                        task.spawn(callback, box.Text)
+                    end
+                end)
+
+                return TextBox
+            end
+
+            -- DROPDOWN
+
+            function Tab:AddDropdown(text, optionsList, default, callback, id)
+                optionsList = optionsList or {}
+
+                local selected = default or optionsList[1] or "None"
+                local frame = NewRow(40)
+
+                Create("TextLabel", {
+                    Size = UDim2.new(0.45, 0, 1, 0),
+                    Position = UDim2.fromOffset(10, 0),
+                    BackgroundTransparency = 1,
+                    Text = tostring(text),
+                    TextColor3 = Theme.White,
+                    TextSize = 12,
+                    Font = Font,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                }, frame)
+
+                local button = Create("TextButton", {
+                    Size = UDim2.new(0.5, -10, 0, 27),
+                    Position = UDim2.new(0.5, 0, 0.5, -13),
+                    BackgroundColor3 = Theme.Background,
+                    Text = tostring(selected) .. "  ▼",
+                    TextColor3 = Theme.White,
+                    TextSize = 11,
+                    Font = Font,
+                    AutoButtonColor = false
+                }, frame)
+
+                Corner(button, 4)
+                Outline(button, Theme.Stroke)
+
+                local index = 1
+
+                local Dropdown = {}
+
+                function Dropdown:Set(value, silent)
+                    selected = value
+                    button.Text = tostring(selected) .. "  ▼"
+
+                    for i, option in ipairs(optionsList) do
+                        if option == value then
+                            index = i
+                            break
+                        end
+                    end
+
+                    Window.Values[self.ConfigId] = selected
+
+                    if callback and not silent then
+                        task.spawn(callback, selected)
+                    end
+                end
+
+                function Dropdown:Get()
+                    return selected
+                end
+
+                Register(id, Dropdown, selected)
+
+                Connect(button.MouseButton1Click, function()
+                    if #optionsList == 0 then
+                        return
+                    end
+
+                    index += 1
+
+                    if index > #optionsList then
+                        index = 1
+                    end
+
+                    Dropdown:Set(optionsList[index])
+                end)
+
+                return Dropdown
+            end
+
+            -- KEYBIND
+
+            function Tab:AddKeybind(text, default, callback, id)
+                local key = default or Enum.KeyCode.RightControl
+                local waiting = false
+
+                local frame = NewRow(38)
+
+                Create("TextLabel", {
+                    Size = UDim2.new(0.6, 0, 1, 0),
+                    Position = UDim2.fromOffset(10, 0),
+                    BackgroundTransparency = 1,
+                    Text = tostring(text),
+                    TextColor3 = Theme.White,
+                    TextSize = 12,
+                    Font = Font,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                }, frame)
+
+                local button = Create("TextButton", {
+                    Size = UDim2.fromOffset(100, 25),
+                    Position = UDim2.new(1, -110, 0.5, -12),
+                    BackgroundColor3 = Theme.Background,
+                    Text = key.Name,
+                    TextColor3 = Theme.White,
+                    TextSize = 11,
+                    Font = Font,
+                    AutoButtonColor = false
+                }, frame)
+
+                Corner(button, 4)
+                Outline(button, Theme.Stroke)
+
+                local Keybind = {}
+
+                function Keybind:Set(newKey, silent)
+                    key = newKey
+                    button.Text = key.Name
+                    Window.Values[self.ConfigId] = key.Name
+
+                    if callback and not silent then
+                        task.spawn(callback, key)
+                    end
+                end
+
+                function Keybind:Get()
+                    return key
+                end
+
+                Register(id, Keybind, key.Name)
+
+                Connect(button.MouseButton1Click, function()
+                    waiting = true
+                    button.Text = "Press key..."
+                end)
+
+                Connect(UserInputService.InputBegan, function(input, processed)
+                    if processed then
+                        return
+                    end
+
+                    if waiting and input.KeyCode ~= Enum.KeyCode.Unknown then
+                        waiting = false
+                        Keybind:Set(input.KeyCode)
+                        return
+                    end
+
+                    if not waiting and input.KeyCode == key and callback then
+                        task.spawn(callback, key)
+                    end
+                end)
+
+                return Keybind
+            end
+
+            table.insert(Section.Tabs, Tab)
+
+            if not Window.CurrentTab then
+                Tab:Select()
+            end
+
+            return Tab
+        end
+
+        table.insert(Window.Sections, Section)
+
+        return Section
+    end
+
+    --==================================================
+    -- BUILT-IN TABS
+    --==================================================
+
+    local system = Window:AddSection("SYSTEM")
+
+    Window.Settings = system:AddTab("Settings")
+    Window.Config = system:AddTab("Config")
+    Window.Server = system:AddTab("Server")
+
+    -- SETTINGS
+
+    Window.Settings:AddLabel("Interface settings")
+
+    Window.Settings:AddToggle(
+        "Notifications",
+        true,
+        function(value)
+            Library.Notifications = value
+        end,
+        "setting_notifications"
+    )
+
+    Window.Settings:AddToggle(
+        "Auto Save",
+        true,
+        function(value)
+            Window:SetAutoSave(value)
+        end,
+        "setting_autosave"
+    )
+
+    Window.Settings:AddKeybind(
+        "Toggle Menu",
+        Window.ToggleKey,
+        function(key)
+            Window:SetToggleKey(key)
+        end,
+        "setting_togglekey"
+    )
+
+    Window.Settings:AddButton("Unload Interface", function()
+        Window:Destroy()
+    end)
+
+    -- CONFIG
+
+    Window.Config:AddLabel("Configuration manager")
+
+    Window.Config:AddParagraph(
+        "Config file",
+        Library.ConfigFile
+    )
+
+    Window.Config:AddButton("Save Configuration", function()
+        Window:SaveConfig()
+    end)
+
+    Window.Config:AddButton("Load Configuration", function()
+        Window:LoadConfig()
+    end)
+
+    Window.Config:AddButton("Reset Configuration", function()
+        for id, element in pairs(Window.Elements) do
+            local default = element.Default
+
+            if default ~= nil and element.Set then
+                element:Set(default, true)
+            end
+        end
+
+        Library:Notify({
+            Title = "Configuration",
+            Text = "Reset completed.",
+            Duration = 2
+        })
+    end)
+
+    -- SERVER
+
+    Window.Server:AddLabel("Current server information")
+
+    Window.Server:AddParagraph(
+        "Player",
+        Player.Name
+    )
+
+    Window.Server:AddParagraph(
+        "User ID",
+        tostring(Player.UserId)
+    )
+
+    Window.Server:AddParagraph(
+        "Place ID",
+        tostring(game.PlaceId)
+    )
+
+    Window.Server:AddParagraph(
+        "Job ID",
+        game.JobId ~= "" and game.JobId or "Unavailable"
+    )
+
+    Window.Server:AddButton("Copy Job ID", function()
+        if setclipboard then
+            setclipboard(game.JobId)
+            Library:Notify({
+                Title = "Server",
+                Text = "Job ID copied.",
+                Duration = 2
+            })
+        else
+            Library:Notify({
+                Title = "Server",
+                Text = "Clipboard is not supported.",
+                Duration = 2
+            })
+        end
+    end)
+
+    Window.Server:AddButton("Copy Place ID", function()
+        if setclipboard then
+            setclipboard(tostring(game.PlaceId))
+            Library:Notify({
+                Title = "Server",
+                Text = "Place ID copied.",
+                Duration = 2
+            })
+        end
+    end)
+
+    -- LOAD SAVED CONFIG AFTER ELEMENTS EXIST
+
+    local saved = LoadTableFromFile(Library.ConfigFile)
+
+    if saved then
+        for id, value in pairs(saved) do
+            local element = Window.Elements[id]
+
+            if element and element.Set then
+                pcall(function()
+                    if id == "setting_togglekey" and typeof(value) == "string" then
+                        element:Set(Enum.KeyCode[value], true)
+                    else
+                        element:Set(value, true)
+                    end
+                end)
+            end
+        end
+    end
+
+    Library:Notify({
+        Title = options.Title or "Eclipse Yield",
+        Text = "Interface successfully loaded.",
+        Duration = 3
+    })
+
+    return Window
+end
+
+return Library
