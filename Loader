@@ -1,0 +1,895 @@
+
+--[[
+    ECLIPSE YIELD UI
+    Version: 3.0
+    Library API
+    Config: config_meu.lua
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+local Player = Players.LocalPlayer
+
+local Library = {
+    Version = "3.0",
+    Notifications = true,
+    AutoSave = true,
+    AutoSaveInterval = 15,
+    ConfigFile = "config_meu.lua",
+    Windows = {},
+    Connections = {},
+    Theme = {
+        Background = Color3.fromRGB(9, 9, 12),
+        Sidebar = Color3.fromRGB(13, 13, 17),
+        Element = Color3.fromRGB(20, 20, 25),
+        Hover = Color3.fromRGB(30, 30, 36),
+        Border = Color3.fromRGB(43, 43, 50),
+        Accent = Color3.fromRGB(190, 35, 45),
+        AccentBright = Color3.fromRGB(235, 55, 65),
+        Text = Color3.fromRGB(245, 245, 248),
+        SubText = Color3.fromRGB(145, 145, 155),
+        Off = Color3.fromRGB(55, 55, 63)
+    }
+}
+
+local Theme = Library.Theme
+
+local function Connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(Library.Connections, connection)
+    return connection
+end
+
+local function New(class, properties, parent)
+    local object = Instance.new(class)
+
+    for key, value in pairs(properties or {}) do
+        object[key] = value
+    end
+
+    object.Parent = parent
+    return object
+end
+
+local function Corner(object, radius)
+    return New("UICorner", {
+        CornerRadius = UDim.new(0, radius or 6)
+    }, object)
+end
+
+local function Stroke(object, color, thickness)
+    return New("UIStroke", {
+        Color = color or Theme.Border,
+        Thickness = thickness or 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    }, object)
+end
+
+local function Animate(object, properties, duration, style)
+    local animation = TweenService:Create(
+        object,
+        TweenInfo.new(
+            duration or 0.2,
+            style or Enum.EasingStyle.Quart,
+            Enum.EasingDirection.Out
+        ),
+        properties
+    )
+
+    animation:Play()
+    return animation
+end
+
+local function Label(parent, text, position, size, fontSize, color)
+    return New("TextLabel", {
+        Position = position,
+        Size = size,
+        BackgroundTransparency = 1,
+        Text = tostring(text or ""),
+        TextColor3 = color or Theme.Text,
+        Font = Enum.Font.GothamMedium,
+        TextSize = fontSize or 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center
+    }, parent)
+end
+
+local function Button(parent, text, size, position)
+    local button = New("TextButton", {
+        Size = size,
+        Position = position,
+        BackgroundColor3 = Theme.Element,
+        Text = text,
+        TextColor3 = Theme.Text,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 12,
+        AutoButtonColor = false,
+        BorderSizePixel = 0
+    }, parent)
+
+    Corner(button, 5)
+    Stroke(button, Theme.Border)
+
+    Connect(button.MouseEnter, function()
+        Animate(button, {
+            BackgroundColor3 = Theme.Hover
+        })
+    end)
+
+    Connect(button.MouseLeave, function()
+        Animate(button, {
+            BackgroundColor3 = Theme.Element
+        })
+    end)
+
+    return button
+end
+
+--==================================================
+-- CONFIG SERIALIZER
+--==================================================
+
+local function Serialize(value, depth)
+    depth = depth or 0
+
+    if depth > 10 then
+        return "nil"
+    end
+
+    local kind = typeof(value)
+
+    if kind == "string" then
+        return string.format("%q", value)
+    elseif kind == "number" or kind == "boolean" then
+        return tostring(value)
+    elseif kind == "table" then
+        local result = {"{"}
+
+        for key, item in pairs(value) do
+            if typeof(key) == "string" then
+                table.insert(result,
+                    "[" .. string.format("%q", key) .. "]=" ..
+                    Serialize(item, depth + 1) .. ","
+                )
+            elseif typeof(key) == "number" then
+                table.insert(result,
+                    "[" .. key .. "]=" ..
+                    Serialize(item, depth + 1) .. ","
+                )
+            end
+        end
+
+        table.insert(result, "}")
+        return table.concat(result)
+    end
+
+    return "nil"
+end
+
+local function SaveFile(data)
+    if not writefile then
+        return false, "writefile indisponível"
+    end
+
+    local success, err = pcall(function()
+        writefile(
+            Library.ConfigFile,
+            "-- Eclipse Yield Configuration\nreturn " ..
+            Serialize(data)
+        )
+    end)
+
+    return success, err
+end
+
+local function LoadFile()
+    if not readfile or not isfile or not loadstring then
+        return nil, "API de arquivos indisponível"
+    end
+
+    if not isfile(Library.ConfigFile) then
+        return nil, "Arquivo não encontrado"
+    end
+
+    local success, result = pcall(function()
+        local source = readfile(Library.ConfigFile)
+        local chunk = loadstring(source)
+
+        assert(chunk, "Configuração inválida")
+
+        return chunk()
+    end)
+
+    if success and typeof(result) == "table" then
+        return result
+    end
+
+    return nil, result
+end
+
+--==================================================
+-- NOTIFICATIONS
+--==================================================
+
+local NotificationGui
+local NotificationHolder
+local NotificationCount = 0
+
+local function GetNotifications()
+    if NotificationHolder and NotificationHolder.Parent then
+        return NotificationHolder
+    end
+
+    local parent = Player:WaitForChild("PlayerGui")
+
+    NotificationGui = New("ScreenGui", {
+        Name = "EclipseNotifications",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 10000
+    }, parent)
+
+    NotificationHolder = New("Frame", {
+        Name = "NotificationHolder",
+        Size = UDim2.fromOffset(310, 500),
+        Position = UDim2.new(1, -325, 0, 18),
+        BackgroundTransparency = 1
+    }, NotificationGui)
+
+    New("UIListLayout", {
+        Padding = UDim.new(0, 9),
+        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        VerticalAlignment = Enum.VerticalAlignment.Top,
+        SortOrder = Enum.SortOrder.LayoutOrder
+    }, NotificationHolder)
+
+    return NotificationHolder
+end
+
+function Library:Notify(options)
+    options = options or {}
+
+    if not self.Notifications then
+        return
+    end
+
+    local holder = GetNotifications()
+    NotificationCount += 1
+
+    local duration = math.max(1, options.Duration or 4)
+
+    local card = New("Frame", {
+        Name = "Notification",
+        Size = UDim2.new(1, 0, 0, 76),
+        BackgroundColor3 = Theme.Background,
+        BackgroundTransparency = 0.04,
+        BorderSizePixel = 0,
+        LayoutOrder = NotificationCount
+    }, holder)
+
+    Corner(card, 8)
+    Stroke(card, Theme.Border)
+
+    local accent = New("Frame", {
+        Size = UDim2.new(0, 3, 1, -16),
+        Position = UDim2.fromOffset(0, 8),
+        BackgroundColor3 = options.Color or Theme.Accent,
+        BorderSizePixel = 0
+    }, card)
+
+    Corner(accent, 4)
+
+    local icon = Label(
+        card,
+        options.Icon or "🌙",
+        UDim2.fromOffset(12, 9),
+        UDim2.fromOffset(30, 30),
+        19
+    )
+
+    icon.TextXAlignment = Enum.TextXAlignment.Center
+
+    Label(
+        card,
+        options.Title or "Eclipse Yield",
+        UDim2.fromOffset(49, 9),
+        UDim2.new(1, -60, 0, 22),
+        13
+    )
+
+    local description = Label(
+        card,
+        options.Text or "",
+        UDim2.fromOffset(49, 32),
+        UDim2.new(1, -60, 0, 29),
+        11,
+        Theme.SubText
+    )
+
+    description.TextWrapped = true
+    description.TextYAlignment = Enum.TextYAlignment.Top
+
+    local progressBackground = New("Frame", {
+        Size = UDim2.new(1, -18, 0, 2),
+        Position = UDim2.new(0, 9, 1, -6),
+        BackgroundColor3 = Theme.Border,
+        BorderSizePixel = 0
+    }, card)
+
+    local progress = New("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = options.Color or Theme.Accent,
+        BorderSizePixel = 0
+    }, progressBackground)
+
+    local dismiss = Button(
+        card,
+        "×",
+        UDim2.fromOffset(23, 23),
+        UDim2.new(1, -29, 0, 5)
+    )
+
+    dismiss.TextSize = 17
+    dismiss.BackgroundTransparency = 1
+
+    local closed = false
+
+    local function Close()
+        if closed then return end
+        closed = true
+
+        Animate(card, {
+            Position = UDim2.new(1, 60, 0, 0),
+            BackgroundTransparency = 1
+        }, 0.25)
+
+        Animate(progressBackground, {
+            BackgroundTransparency = 1
+        }, 0.2)
+
+        task.delay(0.28, function()
+            if card.Parent then
+                card:Destroy()
+            end
+        end)
+    end
+
+    dismiss.MouseButton1Click:Connect(Close)
+
+    card.Position = UDim2.new(1, 60, 0, 0)
+    card.BackgroundTransparency = 1
+
+    Animate(card, {
+        Position = UDim2.new(0, 0, 0, 0),
+        BackgroundTransparency = 0.04
+    }, 0.35, Enum.EasingStyle.Back)
+
+    Animate(progress, {
+        Size = UDim2.new(0, 0, 1, 0)
+    }, duration, Enum.EasingStyle.Linear)
+
+    task.delay(duration, Close)
+end
+
+--==================================================
+-- WINDOW
+--==================================================
+
+function Library:CreateWindow(options)
+    options = options or {}
+
+    local title = options.Title or "Eclipse Yield"
+    local windowSize = options.Size or Vector2.new(680, 480)
+
+    local camera = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+
+    local width = math.min(windowSize.X, viewport.X - 20)
+    local height = math.min(windowSize.Y, viewport.Y - 20)
+
+    local Window = {
+        Sections = {},
+        Elements = {},
+        ConfigData = {},
+        Minimized = false,
+        Destroyed = false,
+        AutoSave = true,
+        ToggleKey = options.ToggleKey or Enum.KeyCode.RightControl
+    }
+
+    local gui = New("ScreenGui", {
+        Name = "EclipseYield",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 999,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    }, Player:WaitForChild("PlayerGui"))
+
+    Window.Gui = gui
+
+    local main = New("Frame", {
+        Name = "Main",
+        Size = UDim2.fromOffset(width, height),
+        Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2),
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel = 0,
+        ClipsDescendants = true
+    }, gui)
+
+    Window.Main = main
+
+    Corner(main, 9)
+    Stroke(main, Theme.Border, 1.2)
+
+    -- TOPBAR
+
+    local topbar = New("Frame", {
+        Name = "Topbar",
+        Size = UDim2.new(1, 0, 0, 62),
+        BackgroundColor3 = Theme.Sidebar,
+        BorderSizePixel = 0
+    }, main)
+
+    local moon = Label(
+        topbar,
+        "🌙",
+        UDim2.fromOffset(14, 8),
+        UDim2.fromOffset(43, 43),
+        25
+    )
+
+    moon.TextXAlignment = Enum.TextXAlignment.Center
+
+    Label(
+        topbar,
+        title,
+        UDim2.fromOffset(65, 9),
+        UDim2.new(1, -190, 0, 23),
+        16
+    )
+
+    Label(
+        topbar,
+        "ECLIPSE YIELD  /  " .. Library.Version,
+        UDim2.fromOffset(66, 32),
+        UDim2.new(1, -190, 0, 17),
+        9,
+        Theme.SubText
+    )
+
+    local minimize = Button(
+        topbar,
+        "−",
+        UDim2.fromOffset(27, 27),
+        UDim2.new(1, -69, 0, 17)
+    )
+
+    local close = Button(
+        topbar,
+        "×",
+        UDim2.fromOffset(27, 27),
+        UDim2.new(1, -35, 0, 17)
+    )
+
+    -- DRAG
+
+    do
+        local dragging = false
+        local startInput
+        local startPosition
+
+        Connect(topbar.InputBegan, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+                dragging = true
+                startInput = input.Position
+                startPosition = main.Position
+
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+
+        Connect(UIS.InputChanged, function(input)
+            if dragging and (
+                input.UserInputType == Enum.UserInputType.MouseMovement
+                or input.UserInputType == Enum.UserInputType.Touch
+            ) then
+
+                local delta = input.Position - startInput
+
+                main.Position = UDim2.new(
+                    startPosition.X.Scale,
+                    startPosition.X.Offset + delta.X,
+                    startPosition.Y.Scale,
+                    startPosition.Y.Offset + delta.Y
+                )
+            end
+        end)
+    end
+
+    -- BODY
+
+    local body = New("Frame", {
+        Name = "Body",
+        Size = UDim2.new(1, 0, 1, -62),
+        Position = UDim2.fromOffset(0, 62),
+        BackgroundTransparency = 1
+    }, main)
+
+    local sidebar = New("Frame", {
+        Size = UDim2.new(0, 145, 1, -12),
+        Position = UDim2.fromOffset(8, 5),
+        BackgroundColor3 = Theme.Sidebar,
+        BorderSizePixel = 0
+    }, body)
+
+    Corner(sidebar, 7)
+
+    local content = New("Frame", {
+        Size = UDim2.new(1, -169, 1, -12),
+        Position = UDim2.fromOffset(161, 5),
+        BackgroundColor3 = Theme.Sidebar,
+        BorderSizePixel = 0,
+        ClipsDescendants = true
+    }, body)
+
+    Corner(content, 7)
+
+    local sectionList = New("ScrollingFrame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = Theme.Accent,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new()
+    }, sidebar)
+
+    New("UIListLayout", {
+        Padding = UDim.new(0, 8),
+        SortOrder = Enum.SortOrder.LayoutOrder
+    }, sectionList)
+
+    New("UIPadding", {
+        PaddingTop = UDim.new(0, 12),
+        PaddingLeft = UDim.new(0, 8),
+        PaddingRight = UDim.new(0, 8),
+        PaddingBottom = UDim.new(0, 10)
+    }, sectionList)
+
+    -- CONFIG API
+
+    function Window:GetConfig()
+        return self.ConfigData
+    end
+
+    function Window:SaveConfig()
+        for _, element in ipairs(self.Elements) do
+            if element.Get then
+                self.ConfigData[element.ConfigKey] = element:Get()
+            end
+        end
+
+        local success, err = SaveFile(self.ConfigData)
+
+        if success then
+            self:Notify({
+                Title = "Configuration",
+                Text = "config_meu.lua saved successfully."
+            })
+        else
+            self:Notify({
+                Title = "Configuration Error",
+                Text = tostring(err)
+            })
+        end
+
+        return success, err
+    end
+
+    function Window:LoadConfig()
+        local data, err = LoadFile()
+
+        if not data then
+            self:Notify({
+                Title = "Configuration",
+                Text = tostring(err)
+            })
+
+            return false
+        end
+
+        self.ConfigData = data
+
+        for _, element in ipairs(self.Elements) do
+            local value = data[element.ConfigKey]
+
+            if value ~= nil and element.Set then
+                element:Set(value, true)
+            end
+        end
+
+        self:Notify({
+            Title = "Configuration",
+            Text = "Configuration loaded."
+        })
+
+        return true
+    end
+
+    function Window:Notify(options)
+        Library:Notify(options)
+    end
+
+    function Window:Toggle()
+        if self.Destroyed then return end
+
+        self.Visible = not self.Visible
+        main.Visible = self.Visible
+    end
+
+    function Window:SetToggleKey(key)
+        self.ToggleKey = key
+    end
+
+    function Window:Destroy()
+        if self.Destroyed then return end
+
+        self.Destroyed = true
+
+        if self.AutoSave then
+            self:SaveConfig()
+        end
+
+        gui:Destroy()
+    end
+
+    Window.Visible = true
+
+    -- SETTINGS / CONFIG / SERVER
+
+    local defaultSection = Window:AddSection("SYSTEM")
+
+    local settings = defaultSection:AddTab("Settings")
+    local config = defaultSection:AddTab("Config")
+    local server = defaultSection:AddTab("Server")
+
+    Window.Settings = settings
+    Window.Config = config
+    Window.Server = server
+
+    -- SETTINGS
+
+    settings:AddParagraph(
+        "Interface Settings",
+        "Customize your Eclipse Yield experience."
+    )
+
+    settings:AddToggle(
+        "Notifications",
+        true,
+        function(value)
+            Library.Notifications = value
+        end,
+        "Notifications"
+    )
+
+    settings:AddKeybind(
+        "Menu Key",
+        Window.ToggleKey,
+        function(key)
+            Window:SetToggleKey(key)
+        end,
+        "MenuKey"
+    )
+
+    settings:AddButton("Reset Position", function()
+        Animate(main, {
+            Position = UDim2.new(
+                0.5, -width / 2,
+                0.5, -height / 2
+            )
+        }, 0.3)
+    end)
+
+    settings:AddButton("Unload Library", function()
+        Window:Destroy()
+    end)
+
+    -- CONFIG
+
+    config:AddParagraph(
+        "Configuration Manager",
+        "Manage your settings using config_meu.lua."
+    )
+
+    config:AddLabel("FILE: config_meu.lua")
+
+    config:AddButton("Save Configuration", function()
+        Window:SaveConfig()
+    end)
+
+    config:AddButton("Load Configuration", function()
+        Window:LoadConfig()
+    end)
+
+    config:AddToggle(
+        "Auto Save",
+        true,
+        function(value)
+            Window.AutoSave = value
+        end,
+        "AutoSave"
+    )
+
+    config:AddLabel("Auto Save Interval: 15 seconds")
+
+    -- SERVER
+
+    server:AddParagraph(
+        "Server Information",
+        "Current Roblox server information."
+    )
+
+    server:AddLabel("Username: " .. Player.Name)
+    server:AddLabel("Display Name: " .. Player.DisplayName)
+    server:AddLabel("User ID: " .. tostring(Player.UserId))
+    server:AddLabel("Place ID: " .. tostring(game.PlaceId))
+    server:AddLabel("Job ID: " .. tostring(game.JobId))
+
+    server:AddButton("Copy Job ID", function()
+        if setclipboard then
+            local success = pcall(function()
+                setclipboard(game.JobId)
+            end)
+
+            Window:Notify({
+                Title = "Server",
+                Text = success and "Job ID copied." or "Copy failed."
+            })
+        else
+            Window:Notify({
+                Title = "Server",
+                Text = "Clipboard API unavailable."
+            })
+        end
+    end)
+
+    server:AddButton("Copy Place ID", function()
+        if setclipboard then
+            pcall(setclipboard, tostring(game.PlaceId))
+        end
+    end)
+
+    -- MINIMIZE / CLOSE
+
+    minimize.MouseButton1Click:Connect(function()
+        Window.Minimized = not Window.Minimized
+
+        body.Visible = not Window.Minimized
+
+        Animate(main, {
+            Size = UDim2.fromOffset(
+                width,
+                Window.Minimized and 62 or height
+            )
+        }, 0.25)
+    end)
+
+    close.MouseButton1Click:Connect(function()
+        Window:Destroy()
+    end)
+
+    -- MOBILE BUTTON
+
+    if UIS.TouchEnabled and not UIS.KeyboardEnabled then
+        local mobile = Button(
+            gui,
+            "🌙",
+            UDim2.fromOffset(48, 48),
+            UDim2.new(0, 12, 0.5, -24)
+        )
+
+        mobile.TextSize = 23
+        Corner(mobile, 24)
+        Stroke(mobile, Theme.Accent, 1.5)
+
+        mobile.MouseButton1Click:Connect(function()
+            Window:Toggle()
+        end)
+    end
+
+    -- KEYBIND
+
+    Connect(UIS.InputBegan, function(input, processed)
+        if not processed and not Window.Destroyed then
+            if input.KeyCode == Window.ToggleKey then
+                Window:Toggle()
+            end
+        end
+    end)
+
+    -- AUTO SAVE
+
+    task.spawn(function()
+        while not Window.Destroyed do
+            task.wait(Library.AutoSaveInterval)
+
+            if Window.Destroyed then break end
+
+            if Window.AutoSave then
+                for _, element in ipairs(Window.Elements) do
+                    if element.Get then
+                        Window.ConfigData[element.ConfigKey] = element:Get()
+                    end
+                end
+
+                SaveFile(Window.ConfigData)
+            end
+        end
+    end)
+
+    table.insert(Library.Windows, Window)
+
+    Library:Notify({
+        Title = "Eclipse Yield",
+        Text = "Interface initialized successfully.",
+        Icon = "🌙"
+    })
+
+    if options.LoadConfig then
+        Window:LoadConfig()
+    end
+
+    return Window
+end
+
+--==================================================
+-- SECTION API
+--==================================================
+
+function Library:AddSectionAPI(Window, name)
+    return Window:AddSection(name)
+end
+
+--==================================================
+-- TAB API
+--==================================================
+
+function Library:CreateTab(Section, name)
+    return Section:AddTab(name)
+end
+
+--==================================================
+-- GLOBAL API
+--==================================================
+
+function Library:DestroyAll()
+    for _, window in ipairs(self.Windows) do
+        window:Destroy()
+    end
+
+    for _, connection in ipairs(self.Connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+
+    table.clear(self.Windows)
+    table.clear(self.Connections)
+
+    if NotificationGui then
+        NotificationGui:Destroy()
+    end
+end
+
+return Library
